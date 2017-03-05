@@ -1,0 +1,63 @@
+0. I'm using react. To run:
+        cd hello-world
+        npm start
+
+1. data/ has data per city, 
+        filename is the city name alllowernospaces.json ;
+        content-transfer-encoding is gzip
+        data is:
+        { 'name' : '',
+          'lat' : 77.77, 'long' : 80.80,
+          'electric-demand' : [ 
+                index by day-of-year * 24 + hour-of-day,
+                value in kW
+                -- data from WWF or QEC
+          ],
+          'temp' : [ value in C ],
+          'wind' : [ same indexing, value in km/h ],
+          'sun' : [ same indexing, value in W/m^2 ]
+                -- data from CWEEDS for sun, and there or env can for temp/wind
+        }
+        todo: variance -- for now just pick up whatever data we can find
+   Hourly data is 70 kB (assuming 8 bytes / value) uncompressed =>
+        less than 300 kB uncompressed per community; 
+        25 communities, 7.5 MB uncompressed. Getting large; figure that out
+                later. (Easy solution: switch to binary, 1-2 bytes per datum;
+                maybe diff-encode as well.)
+
+2. foo.js per page? or just one. Either way, four states:
+        - frontpage
+        - choosecity
+        - choosetech
+        - displayresult
+
+3. url includes #pagename with arguments:
+                choosecity,lang=en
+                choosetech,lang=en,city=iqaluit
+                displayresult,lang=en,city=iqaluit,solar=2,energon2300=2
+
+4. frontpage: map of nunavut, overlay: energy (genset + tanks + windmill + ...)
+        action: choose the language - fr, en, iu
+
+5. choosecommunity: map of nunavut, projected to have geographic center in the
+        middle (no crazy stretching of ellesmere). 
+        action: click on community name
+
+6. choosetech:
+        * electricity
+                * generation: diesel, wind, utility solar, rooftop solar
+                                (todo: other)
+                * storage: utility batteries, home batteries
+                * efficiency: LEDs, appliances (todo: demand-shift - data from where?)
+        * heating
+                * generation: district heat, oil, heat pump, resistive
+                * efficiency: insulation
+
+7. displayresult: (should this be just auto-update as we change the tech
+        choices? probably!)
+        $$$ by QEC, by C&I, by individuals, and sum.
+
+
+Idea for later: queue up what you're buying each year, do a budget every year,
+see how to get to zero CO2 as fast as possible taking into account population
+growth, cost declines, varying climate, etc. Also add in the transport sector.
