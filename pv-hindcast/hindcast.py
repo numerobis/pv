@@ -127,39 +127,7 @@ def read_weather_data(startyear = 1953, endyear = 1953, latitude = 63.75, longit
         'absolute_airmass': am_abs
     }, index = times)
 
-def plot_watts_out(series, inverter, numhours, filename, title, extraseries = None):
-    maxgeneration = numhours * inverter.Paco
-    generation = series.sum()
-    capacity_factor = generation / maxgeneration * 100.0
-
-    ax = series.plot(legend = None)
-    if extraseries is not None:
-        extraseries.plot(grid=False, legend=None, color='green')
-
-    ax.set_ylim(ymin = 0)
-    plt.title(title + '; sum {} kWh ({}% capacity)'.format(int(generation) / 1000.0, int(capacity_factor)))
-    plt.savefig(filename + '.pdf')
-    plt.gcf().clear()
-
-
-if __name__ == '__main__':
-    # Select the PV module and the inverter.
-    sandia_modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
-    sapm_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
-    module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
-    inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
-
-    # Select the location. Iqaluit A.
-    latlong = (63.75, -68.55)
-
-    # Select the inclination of the panel. Normally ~ the latitude, and south (180).
-    # Latitude means max power at noon on equinox.
-    surface_tilt = latlong[0]
-    surface_azimuth = 180
-
-    data = read_weather_data(latitude = latlong[0], longitude = latlong[1])
-    #print ("Got the data: ", data)
-
+def get_watts_out(data, module, inverter, surface_tilt, surface_azimuth = 180):
     # Get the irradiance on the panel.
     irradiance = pvlib.irradiance.total_irrad(
                     surface_tilt, surface_azimuth,
@@ -188,6 +156,42 @@ if __name__ == '__main__':
     # Units for AC is watts; DC has several outputs, we use voltage and watts.
     dc = pvlib.pvsystem.sapm(effective_irradiance, panel_temp['temp_cell'], module)
     ac = pvlib.pvsystem.snlinverter(dc['v_mp'], dc['p_mp'], inverter)
+    return ac
+
+
+def plot_watts_out(series, inverter, numhours, filename, title, extraseries = None):
+    maxgeneration = numhours * inverter.Paco
+    generation = series.sum()
+    capacity_factor = generation / maxgeneration * 100.0
+
+    ax = series.plot(legend = None)
+    if extraseries is not None:
+        extraseries.plot(grid=False, legend=None, color='green')
+
+    ax.set_ylim(ymin = 0)
+    plt.title(title + '; sum {} kWh ({}% capacity)'.format(int(generation) / 1000.0, int(capacity_factor)))
+    plt.savefig(filename + '.pdf')
+    plt.gcf().clear()
+
+
+if __name__ == '__main__':
+    # Select the PV module and the inverter.
+    sandia_modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
+    sapm_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
+    module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
+    inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
+
+    # Select the location. Iqaluit A.
+    latlong = (63.75, -68.55)
+    data = read_weather_data(latitude = latlong[0], longitude = latlong[1])
+    #print ("Got the data: ", data)
+
+    # Select the inclination of the panel. Normally ~ the latitude, and south (180).
+    # Latitude means max power at noon on equinox.
+    surface_tilt = abs(latlong[0])
+    surface_azimuth = 180
+
+    ac = get_watts_out(data, module, inverter, surface_tilt, surface_azimuth)
 
     # Plotting:
     # - group by year
