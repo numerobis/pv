@@ -10,14 +10,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_color_codes()
 
-def read_weather_data(startyear = 1953, endyear = 1953, latitude = 63.75, longitude = -68.55):
+def read_weather_data(start_year = 1953, end_year = 1953, latitude = 63.75, longitude = -68.55):
     """
     Look up the weather data for Iqaluit for the given years.
     Data is assumed to be in chronological order.
 
     We calculate everything that doesn't depend on the module & inverter.
 
-    Returns a dataframe with indices the times (hourly data), 
+    Returns a dataframe with indices the times (hourly data),
     columns for weather, albedo, irradiance (ghi/dni/dhi),
     solar position, etc.
     """
@@ -39,8 +39,10 @@ def read_weather_data(startyear = 1953, endyear = 1953, latitude = 63.75, longit
 
     with open('../data/NUNAVUT/IqaluitA_1953-2005/16603.WY2') as f:
         for line in f:
-            ##### just simulate 1953!
-            if line[6:10] != '1953': break
+            ##### stop parsing early (parsing is very slow)
+            y = int(line[6:10])
+            if start_year is not None and y < start_year: continue
+            if end_year is not None and y > end_year: break
 
             # yyyymmdd
             str_ymd = line[6:14]
@@ -158,21 +160,53 @@ def get_watts_out(data, module, inverter, surface_tilt, surface_azimuth = 180):
     ac = pvlib.pvsystem.snlinverter(dc['v_mp'], dc['p_mp'], inverter)
     return ac
 
-
-def plot_watts_out(series, inverter, numhours, filename, title, extraseries = None):
-    maxgeneration = numhours * inverter.Paco
-    generation = series.sum()
-    capacity_factor = generation / maxgeneration * 100.0
-
-    ax = series.plot(legend = None)
+def plot(series, filename,
+        title = None,
+        xlabel = None,
+        ylabel = None,
+        mainlegend = None,
+        extralegend = None,
+        xtics_count = None,
+        yrange = (None, None),
+        extraseries = None):
+    ax = series.plot(legend = mainlegend, grid=True)
     if extraseries is not None:
         extraseries.plot(grid=False, legend=None, color='green')
 
-    ax.set_ylim(ymin = 0)
-    plt.title(title + '; sum {} kWh ({}% capacity)'.format(int(generation) / 1000.0, int(capacity_factor)))
+    plt.title(title)
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel(xlabel)
+
+    if yrange[0] is not None:
+        ax.set_ylim(ymin = yrange[0])
+
+    if yrange[1] is not None:
+        ax.set_ylim(ymax = yrange[1])
+
+    if xtics_count is not None:
+        start, stop = ax.get_xlim()
+        ax.set_xticks(np.arange(start, stop, (stop - start) / xtics_count))
+
     plt.savefig(filename + '.pdf')
     plt.gcf().clear()
 
+def plot_watts_out(series, inverter, filename, title,
+        hours_per_item = 1, extraseries = None, xlabel = None, ylabel = None,
+        ymax = None):
+    maxgeneration = hours_per_item * len(series) * inverter.Paco
+    generation = series.sum()
+    capacity_factor = generation / maxgeneration * 100.0
+
+    title += ': {:.2f} kWh ({}% capacity)'.format(int(generation) / 1000.0, int(capacity_factor))
+
+    plot(series, filename,
+        title = title,
+        xlabel = xlabel, ylabel = ylabel,
+#        mainlegend = mainlegend,
+#        extralegend = extralegend,
+#        xtics_count = xtics_count,
+        yrange = (0, ymax),
+        extraseries = extraseries)
 
 if __name__ == '__main__':
     # Select the PV module and the inverter.
