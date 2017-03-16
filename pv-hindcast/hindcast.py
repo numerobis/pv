@@ -10,16 +10,38 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_color_codes()
 
-def read_weather_data(start_year = 1953, end_year = 1953, latitude = 63.75, longitude = -68.55):
+# TODO: generalize this by reading metadata somehow.
+latitude = 63.75
+longitude = -68.55
+
+def read_weather_data(purge_cache = False):
     """
     Look up the weather data for Iqaluit for the given years.
-    Data is assumed to be in chronological order.
 
     We calculate everything that doesn't depend on the module & inverter.
 
     Returns a dataframe with indices the times (hourly data),
     columns for weather, albedo, irradiance (ghi/dni/dhi),
     solar position, etc.
+
+    We cache the data if possible.
+    If 'purge_cache' is set, we ignore any existing cache and clobber it.
+    """
+    data = None
+    if not purge_cache:
+      try:
+        data = pd.read_pickle('data-cache.bin')
+      except:
+        # cache is missing or bad; ignore it.
+        pass
+    if data is None:
+        data = _read_weather_data()
+        data.to_pickle('data-cache.bin')
+    return data
+
+def _read_weather_data():
+    """
+    Read the text file. This is rather slow.
     """
     # Parse the weather data to a frame of series.
     # Unfortunately, seems pd can't handle appending, so we build lists.
@@ -39,14 +61,9 @@ def read_weather_data(start_year = 1953, end_year = 1953, latitude = 63.75, long
 
     with open('../data/NUNAVUT/IqaluitA_1953-2005/16603.WY2') as f:
         for line in f:
-            ##### stop parsing early (parsing is very slow)
-            y = int(line[6:10])
-            if start_year is not None and y < start_year: continue
-            if end_year is not None and y > end_year: break
-
             # yyyymmdd
             str_ymd = line[6:14]
-            # hh but from 01 to 24 not from 00 to 23, so we need to interpret it
+            # hh but from 01 to 24 not from 00 to 23, so we need to interpret it (subtract one)
             str_hr = line[14:16]
 
             # values in kJ/m^2 for the entire hour; divide by 3.6 to get W/m^2
@@ -65,10 +82,7 @@ def read_weather_data(start_year = 1953, end_year = 1953, latitude = 63.75, long
 
             # parse the date
             time = pd.to_datetime(str_ymd, format='%Y%m%d').tz_localize('Canada/Eastern')
-            if str_hr == '24':
-                time += datetime.timedelta(days = 1)
-            else:
-                time += datetime.timedelta(hours = int(str_hr))
+            time += datetime.timedelta(hours = int(str_hr) - 1)
             times.append(time)
 
             # parse irradiance
@@ -108,12 +122,13 @@ def read_weather_data(start_year = 1953, end_year = 1953, latitude = 63.75, long
 
     # We don't get zenith/azimuth from the data. Calculate it.
     solpos = pvlib.solarposition.get_solarposition(times, latitude, longitude)
-    solar_zenith = solpos['apparent_zenith']
-    solar_azimuth = solpos['azimuth']
+    solar_zenith = np.asarray(solpos['apparent_zenith'], dtype=np.float32)
+    solar_azimuth = np.asarray(solpos['azimuth'], dtype=np.float32)
 
     # Get the air mass (?)
     airmass = pvlib.atmosphere.relativeairmass(solar_zenith)
     am_abs = pvlib.atmosphere.absoluteairmass(airmass, pressure)
+    am_abs = np.asarray(am_abs, dtype=np.float32)
 
     return pd.DataFrame({
         'ghi' : ghi,

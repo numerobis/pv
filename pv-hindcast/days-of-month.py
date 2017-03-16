@@ -11,10 +11,8 @@ if __name__ == '__main__':
     module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
     inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
 
-    # Select the location. Iqaluit A.
-    latlong = (63.75, -68.55)
-    data = hindcast.read_weather_data(latitude = 63.75, longitude = -68.55,
-        start_year = None, end_year = None)
+    # Read the data. TODO: pass in the location.
+    data = hindcast.read_weather_data()
 
     # what angles should we use?
     surface_tilt = np.arange(0, 95, 5)
