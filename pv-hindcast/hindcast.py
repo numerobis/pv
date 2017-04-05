@@ -4,6 +4,7 @@ import pvlib
 import pandas as pd
 import datetime
 import numpy as np
+import zipfile
 
 import matplotlib.pyplot as plt
 
@@ -59,7 +60,8 @@ def _read_weather_data():
     albedo_soil = pvlib.irradiance.SURFACE_ALBEDOS['soil']
     albedo_snow = pvlib.irradiance.SURFACE_ALBEDOS['snow']
 
-    with open('../data/NUNAVUT/IqaluitA_1953-2005/16603.WY2') as f:
+    with zipfile.ZipFile('../data/NUNAVUT.zip') as zipf:
+      with zipf.open('NUNAVUT/IqaluitA_1953-2005/16603.WY2') as f:
         for line in f:
             # yyyymmdd
             str_ymd = line[6:14]
