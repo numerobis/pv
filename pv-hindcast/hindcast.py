@@ -5,42 +5,118 @@ import pandas as pd
 import datetime
 import numpy as np
 import zipfile
+import re
+import os
 
 import matplotlib.pyplot as plt
 
 import seaborn as sns
 sns.set_color_codes()
 
-# TODO: generalize this by reading metadata somehow.
-latitude = 63.75
-longitude = -68.55
+def _read_cache_or_not(cache_name, parse_function, purge_cache):
+    data = None
+    cache_name = os.path.join('__pycache__', cache_name)
+    os.makedirs(os.path.dirname(cache_name), exist_ok = True)
+    if not purge_cache:
+      try:
+        data = pd.read_pickle(cache_name)
+      except:
+        # cache is missing or bad; ignore it.
+        pass
+    if data is None:
+        data = parse_function()
+        data.to_pickle(cache_name)
+    return data
 
-def read_weather_data(purge_cache = False):
+
+def read_cweeds_metadata(purge_cache = False):
     """
-    Look up the weather data for Iqaluit for the given years.
+    Return the metadata about the stations.
+    Index: name
+    Columns:
+    - name (pretty, for printing)
+    - territory (in ALLCAPS, gives the name of the .zip file)
+    - directoryname (CamelCaps_1953-2005)
+    - ID (which gives the name of the .WY2 file, also used for the cache)
+    - latitude (+ means north -- always positive for CWEEDS)
+    - longitude (+ means east -- always negative for CWEEDS)
+    - time zone as UTC offset
+    We try to use the cache unless purge_cache is set.
+    """
+    return _read_cache_or_not('cweeds-cache.bin', _read_cweeds_metadata, purge_cache)
+
+def _read_cweeds_metadata():
+    data = {}
+    # CWEEDS was written on windows in Canada, so we probably want CP-1252, but iso-8859-1 is good enough.
+    with open('../data/CWEEDS documentation_Release9.txt', encoding='iso-8859-1') as f:
+        for line in f:
+            if re.match(r'STATION\s*WBAN\s*RAD.CSN\s*WX.CSN\s*LAT\s*LONG\s*MLONG\s*SUN\s*RAD\s*FY\s*LY', line): break
+        for line in f:
+            # drop newline and EOL whitespace
+            line = line.strip()
+            if len(line) == 0:
+                continue
+            # ignore notes
+            if line.startswith('NOTE:'):
+                continue
+            # stop when we get to the appendix
+            if line.startswith('APPENDIX C'):
+                break
+            # keep track of new territories
+            if len(line) > 0 and len(line) < 25:
+                territory = line
+            else:
+                # new station!
+                uglyname = line[:24].strip()
+                prettyname = uglyname.title()
+                camelname = re.sub('\s*', '', prettyname)
+                # clean up the pretty name:
+                prettyname = re.sub(' A$', '', prettyname)
+                prettyname = re.sub("Int'L(\.?)", 'Airport', prettyname)
+                wban = line[24:29].strip()
+                latitude = float(line[46:51])
+                longitude = -float(line[52:58]) # longitude is written + meaning West rather than East
+                mlong = float(line[59:65]) # median longitude of the time zone
+                timezone = -int(mlong) / 15
+                firstyear = int(line[74:76]) + 1900
+                lastyear = int(line[77:79]) + 1900
+                if lastyear < firstyear: lastyear += 100
+                data[camelname] = { 'name': prettyname,
+                        'territory' : territory,
+                        'wban' : wban,
+                        'latitude' : latitude,
+                        'longitude' : longitude,
+                        'timezone' : timezone,
+                        'firstyear' : firstyear,
+                        'lastyear' : lastyear,
+                        'numyears' : lastyear - firstyear,
+                }
+    data = pd.DataFrame(data).transpose()
+    return data
+
+def read_cweeds_data(station, purge_cache = False):
+    """
+    Look up the weather data for a given weather station.
+
+    Station name is case-insensitive and can be partial (as long as it's unique).
 
     We calculate everything that doesn't depend on the module & inverter.
 
     Returns a dataframe with indices the times (hourly data),
     columns for weather, albedo, irradiance (ghi/dni/dhi),
-    solar position, etc.
+    solar position, etc; as well as the lat/long of the station.
 
     We cache the data if possible.
     If 'purge_cache' is set, we ignore any existing cache and clobber it.
     """
-    data = None
-    if not purge_cache:
-      try:
-        data = pd.read_pickle('data-cache.bin')
-      except:
-        # cache is missing or bad; ignore it.
-        pass
-    if data is None:
-        data = _read_weather_data()
-        data.to_pickle('data-cache.bin')
-    return data
+    metadata = read_cweeds_metadata(purge_cache)
+    hits = metadata[metadata.index.to_series().str.contains(station)]
+    if len(hits) == 0:
+        raise KeyError("Station not found: {}".format(station))
+    besthit = hits[hits['numyears'] == hits['numyears'].max()].iloc[0]
+    return _read_cache_or_not('cweeds-{wban}.bin'.format(**besthit), lambda : _read_weather_data(besthit), purge_cache)
 
-def _read_weather_data():
+def _read_weather_data(metadata):
     """
     Read the text file. This is rather slow.
     """
@@ -60,8 +136,23 @@ def _read_weather_data():
     albedo_soil = pvlib.irradiance.SURFACE_ALBEDOS['soil']
     albedo_snow = pvlib.irradiance.SURFACE_ALBEDOS['snow']
 
-    with zipfile.ZipFile('../data/NUNAVUT.zip') as zipf:
-      with zipf.open('NUNAVUT/IqaluitA_1953-2005/16603.WY2') as f:
+    zipname = '../data/{territory}.zip'.format(**metadata)
+    # the station name we use here is the ugly name, not the pretty name in metadata['name']
+    # most stations have the territory name but some don't.
+    wy2name_short = '{{}}_{firstyear}-{lastyear}/{wban}.WY2'.format(**metadata).format(metadata.name)
+    wy2name = '{}/{}'.format(metadata['territory'], wy2name_short)
+
+    latitude = metadata['latitude']
+    longitude = metadata['longitude']
+    timezone = datetime.timezone(datetime.timedelta(hours=metadata['timezone']))
+
+    with zipfile.ZipFile(zipname) as zipf:
+      def openwy2():
+        try:
+          return zipf.open(wy2name)
+        except KeyError:
+          return zipf.open(wy2name_short)
+      with openwy2() as f:
         for line in f:
             # yyyymmdd
             str_ymd = line[6:14]
@@ -83,7 +174,7 @@ def _read_weather_data():
             str_snow = line[116:118]
 
             # parse the date
-            time = pd.to_datetime(str_ymd, format='%Y%m%d').tz_localize('Canada/Eastern')
+            time = pd.to_datetime(str_ymd, format='%Y%m%d').tz_localize(timezone)
             time += datetime.timedelta(hours = int(str_hr) - 1)
             times.append(time)
 
@@ -233,13 +324,12 @@ if __name__ == '__main__':
     inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
 
     # Select the location. Iqaluit A.
-    latlong = (63.75, -68.55)
-    data = read_weather_data(latitude = latlong[0], longitude = latlong[1])
+    data = read_cweeds_data('Iqaluit')
     #print ("Got the data: ", data)
 
     # Select the inclination of the panel. Normally ~ the latitude, and south (180).
     # Latitude means max power at noon on equinox.
-    surface_tilt = abs(latlong[0])
+    surface_tilt = 60
     surface_azimuth = 180
 
     ac = get_watts_out(data, module, inverter, surface_tilt, surface_azimuth)

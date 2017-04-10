@@ -2,4 +2,3 @@
 *.swp
 foo.py
 __pycache__/
-data-cache.bin
