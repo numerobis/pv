@@ -154,42 +154,25 @@ def _read_cweeds_data(metadata):
           return zipf.open(wy2name_short)
       with openwy2() as f:
         for line in f:
-            # yyyymmdd
-            str_y = line[6:10]
-            str_m = line[10:12]
-            str_d = line[12:14]
-            str_h = line[14:16] # from 01 to 24; need to sub one
+            # yyyymmddhh but hh is 01-24; shift to 00-23
+            times.append(datetime.datetime(int(line[6:10]), int(line[10:12]),
+                int(line[12:14]), int(line[14:16]) - 1, tzinfo=timezone))
 
-            # values in kJ/m^2 for the entire hour; divide by 3.6 to get W/m^2
-            str_extra = line[16:20] # extraterrestrial irradiance (sun at ToA)
-            str_ghi = line[20:24] # global horizontal irradiance
-            str_dni = line[26:30] # direct normal irradiance
-            str_dhi = line[32:36] # diffuse horizontal irradiance (ghi - dni)
+            # values in kJ/m^2 for the entire hour; later we divide by 3.6 to get W/m^2
+            dni_extra.append(int(line[16:20])) # extraterrestrial irradiance (sun at ToA)
+            ghi.append(int(line[20:24])) # global horizontal irradiance
+            dni.append(int(line[26:30])) # direct normal irradiance
+            dhi.append(int(line[32:36])) # diffuse horizontal irradiance (ghi - dni)
+
             # pressure in 10 Pa ; divide by 100 to get kPa
-            str_pressure = line[85:90]
+            pressure.append(int(line[85:90]))
             # value in 0.1 C ; divide by 10 to get C
-            str_temp = line[91:95]
+            temp_air.append(int(line[91:95]))
             # value in 0.1 m/s ; divide by 10 to get m/s.
-            str_wind = line[105:109]
-            # 0 => no snow; 1 => snow; 99 => missing
-            str_snow = line[116:118]
+            wind_speed.append(int(line[105:109]))
 
-            # parse the date; remember to sub one from the hours to get 0-23
-            y, m, d, h = int(str_y), int(str_m), int(str_d), int(str_h) - 1
-            time = datetime.datetime(y, m, d, h, tzinfo=timezone)
-            times.append(time)
-
-            # parse irradiance
-            dni_extra.append(int(str_extra) / 3.6)
-            ghi.append(int(str_ghi) / 3.6)
-            dni.append(int(str_dni) / 3.6)
-            dhi.append(int(str_dhi) / 3.6)
-
-            # parse the weather
-            wind_speed.append(int(str_wind) / 10.0)
-            temp_air.append(int(str_temp) / 10.0)
-            pressure.append(int(str_pressure) / 100.0)
-
+            # 0 => no snow; 1 => snow; 9 => missing
+            str_snow = chr(line[116])
             if str_snow == '0':
                 albedo.append(albedo_soil)
             elif str_snow == '1':
@@ -203,15 +186,17 @@ def _read_cweeds_data(metadata):
                 else:
                     albedo.append(albedo_soil)
 
-    # Pack the data now, before using it below.
-    times = np.asarray(times)
-    ghi = np.asarray(ghi, dtype=np.float32)
-    dni = np.asarray(dni, dtype=np.float32)
-    dhi = np.asarray(dhi, dtype=np.float32)
-    dni_extra = np.asarray(dni_extra, dtype=np.float32)
-    wind_speed = np.asarray(wind_speed, dtype=np.float32)
-    temp_air = np.asarray(temp_air, dtype=np.float32)
-    pressure = np.asarray(pressure, dtype=np.float32)
+    # Pack the data now, before using it below. Also convert to the units we
+    # expect (W/m^2 rather than J/(m^2 h), m/s rather than dm/s, etc)
+    # And convert the times to np.datetime64 so pandas can run faster.
+    times = np.asarray(times, dtype=np.datetime64)
+    ghi = np.asarray(ghi, dtype=np.float32) * (1 / 3.6)
+    dni = np.asarray(dni, dtype=np.float32) * (1 / 3.6)
+    dhi = np.asarray(dhi, dtype=np.float32) * (1 / 3.6)
+    dni_extra = np.asarray(dni_extra, dtype=np.float32) * (1 / 3.6)
+    wind_speed = np.asarray(wind_speed, dtype=np.float32) * 0.1
+    temp_air = np.asarray(temp_air, dtype=np.float32) * 0.1
+    pressure = np.asarray(pressure, dtype=np.float32) * 0.01
     albedo = np.asarray(albedo, dtype=np.float32)
 
     # We don't get zenith/azimuth from the data. Calculate it.
