@@ -114,11 +114,11 @@ def read_cweeds_data(station, purge_cache = False):
     if len(hits) == 0:
         raise KeyError("Station not found: {}".format(station))
     besthit = hits[hits['numyears'] == hits['numyears'].max()].iloc[0]
-    return _read_cache_or_not('cweeds-{wban}.bin'.format(**besthit), lambda : _read_weather_data(besthit), purge_cache)
+    return _read_cache_or_not('cweeds-{wban}.bin'.format(**besthit), lambda : _read_cweeds_data(besthit), purge_cache)
 
-def _read_weather_data(metadata):
+def _read_cweeds_data(metadata):
     """
-    Read the text file. This is rather slow.
+    Read the CWEEDS .WY2 text file. This is rather slow.
     """
     # Parse the weather data to a frame of series.
     # Unfortunately, seems pd can't handle appending, so we build lists.
@@ -155,9 +155,10 @@ def _read_weather_data(metadata):
       with openwy2() as f:
         for line in f:
             # yyyymmdd
-            str_ymd = line[6:14]
-            # hh but from 01 to 24 not from 00 to 23, so we need to interpret it (subtract one)
-            str_hr = line[14:16]
+            str_y = line[6:10]
+            str_m = line[10:12]
+            str_d = line[12:14]
+            str_h = line[14:16] # from 01 to 24; need to sub one
 
             # values in kJ/m^2 for the entire hour; divide by 3.6 to get W/m^2
             str_extra = line[16:20] # extraterrestrial irradiance (sun at ToA)
@@ -173,9 +174,9 @@ def _read_weather_data(metadata):
             # 0 => no snow; 1 => snow; 99 => missing
             str_snow = line[116:118]
 
-            # parse the date
-            time = pd.to_datetime(str_ymd, format='%Y%m%d').tz_localize(timezone)
-            time += datetime.timedelta(hours = int(str_hr) - 1)
+            # parse the date; remember to sub one from the hours to get 0-23
+            y, m, d, h = int(str_y), int(str_m), int(str_d), int(str_h) - 1
+            time = datetime.datetime(y, m, d, h, tzinfo=timezone)
             times.append(time)
 
             # parse irradiance
