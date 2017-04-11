@@ -94,11 +94,25 @@ def _read_cweeds_metadata():
     data = pd.DataFrame(data).transpose()
     return data
 
-def read_cweeds_data(station, purge_cache = False):
+def get_cweeds_metadata(station, purge_cache = False):
+    """
+    Look up the metadata for a given weather station.
+    The string can be just a part of the name.
+    We return the match that has the longest record.
+    """
+    metadata = read_cweeds_metadata(purge_cache)
+    hits = metadata[metadata.index.to_series().str.contains(station)]
+    if len(hits) == 0:
+        raise KeyError("Station not found: {}".format(station))
+    besthit = hits[hits['numyears'] == hits['numyears'].max()].iloc[0]
+    return besthit
+
+def read_cweeds_data(stationOrMetadata, purge_cache = False):
     """
     Look up the weather data for a given weather station.
 
-    Station name is case-insensitive and can be partial (as long as it's unique).
+    The station can be metadata found with get_cweeds_metadata, or a string
+    (if a string, we'll look it up).
 
     We calculate everything that doesn't depend on the module & inverter.
 
@@ -109,11 +123,10 @@ def read_cweeds_data(station, purge_cache = False):
     We cache the data if possible.
     If 'purge_cache' is set, we ignore any existing cache and clobber it.
     """
-    metadata = read_cweeds_metadata(purge_cache)
-    hits = metadata[metadata.index.to_series().str.contains(station)]
-    if len(hits) == 0:
-        raise KeyError("Station not found: {}".format(station))
-    besthit = hits[hits['numyears'] == hits['numyears'].max()].iloc[0]
+    if isinstance(stationOrMetadata, str):
+        besthit = get_cweeds_metadata(stationOrMetadata, purge_cache)
+    else:
+        besthit = stationOrMetadata
     return _read_cache_or_not('cweeds-{wban}.bin'.format(**besthit), lambda : _read_cweeds_data(besthit), purge_cache)
 
 def _read_cweeds_data(metadata):
@@ -310,8 +323,9 @@ if __name__ == '__main__':
     inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
 
     # Select the location. Iqaluit A.
-    data = read_cweeds_data('Iqaluit')
-    #print ("Got the data: ", data)
+    import sys
+    location = sys.argv[1] if len(sys.argv) > 2 else 'Iqaluit'
+    metadata = read_cweeds_metadata(location)
 
     # Select the inclination of the panel. Normally ~ the latitude, and south (180).
     # Latitude means max power at noon on equinox.

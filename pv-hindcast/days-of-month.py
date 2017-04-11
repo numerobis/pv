@@ -1,8 +1,10 @@
-import hindcast
-import pvlib
-import numpy as np
-import pandas as pd
 import calendar
+import hindcast
+import numpy as np
+import os
+import pandas as pd
+import pvlib
+import sys
 
 if __name__ == '__main__':
     # Select the PV module and the inverter.
@@ -11,10 +13,13 @@ if __name__ == '__main__':
     module = sandia_modules['Canadian_Solar_CS5P_220M___2009_']
     inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
 
-    # Read the data. TODO: pass in the location.
-    data = hindcast.read_weather_data()
+    # Read the data.
+    station = sys.argv[1] if len(sys.argv) >= 2 else "Iqaluit"
+    print ("Generating graphs for {}".format(station))
+    os.makedirs(station, exist_ok = True)
+    data = hindcast.read_cweeds_data(station)
 
-    # what angles should we use?
+    # what tilt angles should we use?
     surface_tilt = np.arange(0, 95, 5)
 
     # what order statistic do we care about: mean and x%
@@ -62,19 +67,19 @@ if __name__ == '__main__':
 
     # Plot the annual stats, one per tilt level.
     for tilt, stats in zip(surface_tilt, annual_stats_by_tilt):
-        hindcast.plot_watts_out(stats['mean'], inverter, 'average-year-tilt-{:02d}'.format(tilt),
+        hindcast.plot_watts_out(stats['mean'], inverter, '{}/average-year-tilt-{:02d}'.format(station, tilt),
             "Average year with panel at {:2d} degrees".format(tilt),
             extraseries = stats['%'], hours_per_item = 24,
             xlabel = 'Date', ylabel = 'Wh per day', ymax = max_Wh_per_day)
 
     # Find the maximum value for any hour in any month and tilt.
-    max_Wh_per_hour = max([stats.max().max()
-                        for stats in monthly_stats
-                        for monthly_stats in monthly_stats_by_tilt])
-
-    for tilt, monthly_stats in zip(surface_tilt, monthly_stats_by_tilt):
-        for month, stats in monthly_stats.items():
-            # plot the mean and 10% statistic
-            hindcast.plot_watts_out(stats['mean'], inverter, 'average-day-{:02d}-tilt-{:02d}'.format(month, tilt),
-                "Average day in {} with panel at {} degrees".format(calendar.month_abbr[month], tilt),
-                extraseries = stats['%'], xlabel = 'Time of day', ylabel = 'W output', ymax = max_Wh_per_hour)
+    #max_Wh_per_hour = max([stats.max().max()
+    #                    for stats in monthly_stats
+    #                    for monthly_stats in monthly_stats_by_tilt])
+#
+#    for tilt, monthly_stats in zip(surface_tilt, monthly_stats_by_tilt):
+#        for month, stats in monthly_stats.items():
+#            # plot the mean and 10% statistic
+#            hindcast.plot_watts_out(stats['mean'], inverter, 'average-day-{:02d}-tilt-{:02d}'.format(month, tilt),
+#                "Average day in {} with panel at {} degrees".format(calendar.month_abbr[month], tilt),
+#                extraseries = stats['%'], xlabel = 'Time of day', ylabel = 'W output', ymax = max_Wh_per_hour)
