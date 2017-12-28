@@ -7,6 +7,13 @@ import pvlib
 import sys
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('location', help = 'Station name', default = 'Iqaluit')
+    parser.add_argument('-t', '--tilt', type=float, help = 'Tilt angle of panels (0 = flat, 90 = vertical)')
+    parser.add_argument('-a', '--azimuth', type=float, help='Azimuth angle of panels (180 = South)', default = 180)
+    args = parser.parse_args()
+
     # Select the PV module and the inverter.
     sandia_modules = pvlib.pvsystem.retrieve_sam('SandiaMod')
     sapm_inverters = pvlib.pvsystem.retrieve_sam('cecinverter')
@@ -14,13 +21,19 @@ if __name__ == '__main__':
     inverter = sapm_inverters['ABB__MICRO_0_25_I_OUTD_US_208_208V__CEC_2014_']
 
     # Read the data.
-    station = sys.argv[1] if len(sys.argv) >= 2 else "Iqaluit"
-    print ("Generating graphs for {}".format(station))
+    station = args.location
     os.makedirs(station, exist_ok = True)
-    data = hindcast.read_cweeds_data(station)
+    metadata = hindcast.get_cweeds_metadata(station)
+    print ("Reading data for {name}, {latitude} x {longitude}\nYears {firstyear}-{lastyear}".format(**metadata))
+
+    data = hindcast.read_cweeds_data(metadata)
 
     # what tilt angles should we use?
-    surface_tilt = np.arange(0, 95, 5)
+    if args.tilt is None:
+        surface_tilt = np.arange(0, 95, 5)
+    else:
+        surface_tilt = [ args.tilt ]
+    azimuth = args.azimuth
 
     # what order statistic do we care about: mean and x%
     pct = 10
@@ -38,7 +51,7 @@ if __name__ == '__main__':
     annual_stats_by_tilt = []
     monthly_stats_by_tilt = []
     for tilt in surface_tilt:
-        byTilt = hindcast.get_watts_out(data, module, inverter, tilt, 180)
+        byTilt = hindcast.get_watts_out(data, module, inverter, tilt, azimuth)
 
         # first plot the average / 10% statistic daily total by day of year
         daily = byTilt.resample('D').apply(np.sum)
@@ -67,8 +80,8 @@ if __name__ == '__main__':
 
     # Plot the annual stats, one per tilt level.
     for tilt, stats in zip(surface_tilt, annual_stats_by_tilt):
-        hindcast.plot_watts_out(stats['mean'], inverter, '{}/average-year-tilt-{:02d}'.format(station, tilt),
-            "Average year with panel at {:2d} degrees".format(tilt),
+        hindcast.plot_watts_out(stats['mean'], inverter, '{}/average-year-tilt-{:02.0f}-aziumuth-{:02.0f}'.format(station, tilt, azimuth),
+            "Average year with panel at {:2.0f} degrees facing {:2.0f}".format(tilt, azimuth),
             extraseries = stats['%'], hours_per_item = 24,
             xlabel = 'Date', ylabel = 'Wh per day', ymax = max_Wh_per_day)
 

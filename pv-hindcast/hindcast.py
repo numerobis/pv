@@ -152,8 +152,7 @@ def _read_cweeds_data(metadata):
     zipname = '../data/{territory}.zip'.format(**metadata)
     # the station name we use here is the ugly name, not the pretty name in metadata['name']
     # most stations have the territory name but some don't.
-    wy2name_short = '{{}}_{firstyear}-{lastyear}/{wban}.WY2'.format(**metadata).format(metadata.name)
-    wy2name = '{}/{}'.format(metadata['territory'], wy2name_short)
+    wy2name = '{wban}.WY2'.format(**metadata).format(metadata.name)
 
     latitude = metadata['latitude']
     longitude = metadata['longitude']
@@ -161,10 +160,12 @@ def _read_cweeds_data(metadata):
 
     with zipfile.ZipFile(zipname) as zipf:
       def openwy2():
-        try:
-          return zipf.open(wy2name)
-        except KeyError:
-          return zipf.open(wy2name_short)
+        # Find the wy2name in the archive. The names aren't consistent enough
+        # to just get the right one in one or two tries.
+        for zipitem in zipf.infolist():
+          if wy2name in zipitem.filename:
+            return zipf.open(zipitem)
+        raise KeyError("Could not find {} in {}".format(wy2name, zipname))
       with openwy2() as f:
         for line in f:
             # yyyymmddhh but hh is 01-24; shift to 00-23
